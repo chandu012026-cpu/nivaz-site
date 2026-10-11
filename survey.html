@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Nivaz survey — help us build a better PG app</title>
+<meta name="description" content="A short survey for people living in or looking for PGs, hostels and co-living in Hyderabad, and for PG owners. Help us build Nivaz.">
+<meta property="og:title" content="Help us build Nivaz">
+<meta property="og:description" content="A short survey about PGs, hostels and co-living in Hyderabad, for residents and owners. About 15 minutes.">
+<meta name="theme-color" content="#2f4bd8">
+<link rel="stylesheet" href="site.css">
+<link rel="stylesheet" href="survey.css">
+</head>
+<body class="sv">
+<header><div class="in"><a class="brand" href="index.html"><i>N</i>Nivaz</a></div></header>
+<div class="progress" id="progress" hidden><div class="bar"><i id="pbar"></i></div><div class="meta"><b id="psec"></b><span id="pnum"></span></div></div>
+<main id="app"><p class="muted">Loading the survey…</p></main>
+<div class="navbar" id="nav" hidden><div class="in"><button class="ghost" id="back" type="button">Back</button><button id="next" type="button">Next</button></div></div>
+<noscript><main><p>Please turn on JavaScript to take the survey.</p></main></noscript>
+<script src="vendor/supabase.js"></script>
+<script src="config.js"></script>
+<script src="survey-questions.js"></script>
+<script src="survey.js"></script>
+</body>
+</html>
