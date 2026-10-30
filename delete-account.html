@@ -13,7 +13,7 @@
 <h1>Delete your Nivaz account</h1>
 <p>You can also do this in the app: <b>Profile</b> → <b>Delete my account</b>.</p>
 <div class="card">
-  <p style="margin-top:0"><b>What gets deleted:</b> your login, your name, phone number, emergency contact and complaint photos. This can't be undone.</p>
+  <p style="margin-top:0"><b>What gets deleted:</b> your login, your name, phone number, emergency contact, ID pictures and permanent address, and complaint photos. This can't be undone.</p>
   <p style="margin-bottom:0"><b>What owners keep:</b> the records they need for their accounts and the law (past stays, rent bills and payments), shown as “Deleted user”. See the <a href="privacy.html">privacy policy</a>.</p>
 </div>
 
@@ -78,7 +78,7 @@
       go.disabled = true; go.textContent = "Deleting…";
       try {
         const { data: { user } } = await sb.auth.getUser();
-        for (const bucket of ["complaints", "bills"]) {
+        for (const bucket of ["complaints", "bills", "resident-ids"]) {   // the person's own photos first
           const l = await sb.storage.from(bucket).list(user.id, { limit: 1000 });
           const paths = (l.data || []).map(f => user.id + "/" + f.name);
           if (paths.length) { const rm = await sb.storage.from(bucket).remove(paths); if (rm.error) throw rm.error; }
