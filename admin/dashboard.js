@@ -1,7 +1,9 @@
 /* Nivaz team console — the admin web dashboard for the Super admin and Nivaz Support.
-   Login: mobile number + SMS code (the same Supabase login as the apps), then a 6-digit code from an authenticator app
-   (Supabase MFA, TOTP). Lists come from the dash_* functions in supabase/19_admin_dashboard.sql, which check the role and
-   the authenticator step in the database. Changes reuse the actions the phone app uses (same checks there).
+   Login: mobile number + SMS code (the same Supabase login as the apps), then a 6-digit code from an authenticator app.
+   The authenticator step is Nivaz's own (database part 21: dash_totp_begin / dash_totp_verify), because Supabase's
+   built-in one needs an email address and Nivaz accounts are phone-only. A correct code unlocks this login for 12 hours.
+   Lists come from the dash_* functions (parts 19 and 21), which check the role and the unlock in the database.
+   Changes reuse the actions the phone app uses (same checks there).
    Plain JS, no build step: open index.html from any static web server. */
 (function () {
   "use strict";
@@ -253,7 +255,8 @@
   }
 
   function showErr(e, box) {
-    if (e && e.missing && String(e.fn || "").startsWith("dash_")) return showNotInstalled();
+    if (e && e.missing && String(e.fn || "").startsWith("dash_totp")) return showNotInstalled(21);
+    if (e && e.missing && String(e.fn || "").startsWith("dash_")) return showNotInstalled(19);
     if (e && e.mfa) return startSecondStep();
     if (e && e.login) return showLogin();
     (box || view).innerHTML = `<div class="err-box" role="alert"><b>That didn't load.</b> ${esc(friendly(e))}</div>`;
@@ -323,11 +326,13 @@
       <button class="btn" type="button" id="lgOut">Log out</button>`);
     $("#lgOut").onclick = logout;
   }
-  function showNotInstalled() {
-    showGate(`<h1>Part 19 isn't run yet</h1>
-      <p>The dashboard needs one more database step before it can show anything.</p>
+  // A database part the dashboard needs hasn't been run in Supabase yet
+  function showNotInstalled(part) {
+    const p21 = part === 21;
+    showGate(`<h1>Part ${p21 ? 21 : 19} isn't run yet</h1>
+      <p>${p21 ? "The dashboard's second login step (the authenticator-app code) needs one more database step." : "The dashboard needs one more database step before it can show anything."}</p>
       <ol class="howto"><li>Open Supabase and go to <b>SQL Editor</b>, then <b>New query</b>.</li>
-        <li>Paste the whole of <b>19_admin_dashboard.sql</b> (run part 18 first if you haven't).</li>
+        <li>Paste the whole of <b>${p21 ? "21_team_authenticator.sql" : "19_admin_dashboard.sql"}</b>${p21 ? "" : " (run part 18 first if you haven't)"}.</li>
         <li>Press <b>Run</b>, then come back here and press <b>Check again</b>.</li></ol>
       <div class="row"><button class="btn primary" type="button" id="lgAgain">Check again</button><button class="btn" type="button" id="lgOut">Log out</button></div>`, true);
     $("#lgAgain").onclick = () => afterLogin();
@@ -337,70 +342,90 @@
     let me;
     try { me = await rpc("dash_whoami"); }
     catch (e) {
-      if (e.missing) return showNotInstalled();
+      if (e.missing) return showNotInstalled(19);
       if (e.login) return showLogin();
       return showGate(`<h1>Can't reach Nivaz</h1><p>${esc(friendly(e))}</p><button class="btn primary" type="button" id="lgAgain">Try again</button>`), ($("#lgAgain").onclick = afterLogin);
     }
     if (!me || !me.role) return showNotTeam(me);
     S.me = me; S.role = me.role;
-    const { data: lvl } = await sb.auth.mfa.getAuthenticatorAssuranceLevel();
-    if (lvl && lvl.currentLevel === "aal2") return enterApp();
-    startSecondStep();
+    if (!me.step) return showNotInstalled(21);          // part 19 is in, part 21 (the authenticator step) isn't
+    if (me.step === "done") return enterApp();
+    startSecondStep(me.step);
   }
-  // The second login step: a 6-digit code from Google Authenticator (or any authenticator app)
-  async function startSecondStep() {
-    const { data, error } = await sb.auth.mfa.listFactors();
-    if (error) return showLogin(authMsg(error));
-    const ready = (data.totp || [])[0];
-    if (ready) return showTotp(ready.id, false);
-    // First time: clear any half-finished set-ups, then show a new QR code
-    for (const f of data.all || []) if (f.factor_type === "totp" && f.status !== "verified") await sb.auth.mfa.unenroll({ factorId: f.id });
-    const { data: en, error: e2 } = await sb.auth.mfa.enroll({ factorType: "totp", issuer: "Nivaz", friendlyName: "Nivaz dashboard " + new Date().toISOString().slice(0, 16) });
-    if (e2) {
-      const off = /enroll_not_enabled|disabled|not enabled/i.test(e2.message + " " + (e2.code || ""));
-      return showGate(off ? `<h1>Turn on authenticator apps first</h1><p>The second login step uses an authenticator app, and it's switched off for this Supabase project.</p>
-        <ol class="howto"><li>Open Supabase, then <b>Authentication</b>.</li><li>Under <b>Configuration</b>, open <b>Multi-Factor</b>.</li>
-        <li>Set <b>TOTP (App Authenticator)</b> to <b>Enabled</b> and press <b>Save</b>.</li></ol>
-        <div class="row"><button class="btn primary" type="button" id="lgAgain">Try again</button><button class="btn" type="button" id="lgOut">Log out</button></div>`
-        : `<h1>Couldn't start the second step</h1><p>${esc(authMsg(e2))}</p><div class="row"><button class="btn primary" type="button" id="lgAgain">Try again</button><button class="btn" type="button" id="lgOut">Log out</button></div>`, true),
-        ($("#lgAgain").onclick = startSecondStep), ($("#lgOut").onclick = logout);
+  // The account name the authenticator app shows: "Nivaz team (…1234)", the last 4 digits of the phone
+  const appLabel = () => `Nivaz team (…${digits(S.me && S.me.phone).slice(-4)})`;
+  // The second login step: a 6-digit code from Google Authenticator (or any authenticator app).
+  // step 'setup': show the QR code and setup key (only until the first correct code); step 'code': just ask for the code.
+  async function startSecondStep(step) {
+    if (!step) {
+      try { const me = await rpc("dash_whoami"); if (!me.role) return showNotTeam(me); S.me = me; S.role = me.role; step = me.step; }
+      catch (e) { return e.login ? showLogin() : showErr(e, null); }
+      if (!step) return showNotInstalled(21);
+      if (step === "done") return enterApp();
     }
-    showTotp(en.id, true, en.totp);
+    if (step === "code") return showTotp(false);
+    let b;
+    try { b = await rpc("dash_totp_begin"); }
+    catch (e) {
+      if (e.missing) return showNotInstalled(21);
+      if (/totp_already_set_up/.test((e.raw && e.raw.message) || "")) return showTotp(false);
+      if (e.login) return showLogin();
+      return showGate(`<h1>Couldn't start the second step</h1><p>${esc(friendly(e))}</p><div class="row"><button class="btn primary" type="button" id="lgAgain">Try again</button><button class="btn" type="button" id="lgOut">Log out</button></div>`, true),
+        ($("#lgAgain").onclick = () => startSecondStep("setup")), ($("#lgOut").onclick = logout);
+    }
+    showTotp(true, b);
   }
-  function showTotp(factorId, first, totp) {
+  function qrPicture(text) {
+    if (!window.qrcode) return "";
+    const qr = window.qrcode(0, "M"); qr.addData(text); qr.make();
+    return qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true, alt: "QR code to scan with your authenticator app" });
+  }
+  const TOTP_WORDS = {
+    wrong_code: "That code didn't work. Type the 6 digits the app shows right now (a new code comes every 30 seconds), and check that your phone's time is set automatically.",
+    code_used: "That code was just used. Wait for the next one (a new code comes every 30 seconds).",
+    too_many_tries: "Too many tries. Wait 10 minutes, then try again."
+  };
+  function showTotp(first, b) {
+    const label = (b && b.label) || appLabel();
     showGate(first ? `<h1>Set up your second step</h1>
       <p>Each time you log in on a new computer, you'll type a 6-digit code from an authenticator app as well as the SMS code. It keeps Nivaz safe if someone gets hold of your SIM.</p>
       <ol class="steps"><li>On your phone, install <b>Google Authenticator</b> from the Play Store (any authenticator app works).</li>
-        <li>Open it, tap <b>+</b>, then <b>Scan a QR code</b>, and scan this:</li></ol>
-      <div class="qr"><img alt="QR code to scan with your authenticator app" src="${esc(totp.qr_code)}">
-        <div class="muted">Can't scan? Choose <b>Enter a setup key</b> and type:<br><span class="secret">${esc(totp.secret)}</span></div></div>
+        <li>Open it, tap <b>+</b>, then <b>Scan a QR code</b>, and scan this. It shows up as <b>${esc(label)}</b>.</li></ol>
+      <div class="qr"><div class="qrpic">${qrPicture(b.uri)}</div>
+        <div class="muted">Can't scan? Choose <b>Enter a setup key</b>, type <b>${esc(label)}</b> as the name, and this key:<br><span class="secret" id="totpKey">${esc(b.key_groups)}</span><br>
+        <span class="faint">(Time based. The spaces don't matter.)</span></div></div>
       <form id="ltF" novalidate>
-        <label class="fld" for="lgTotp">3. Type the 6-digit code the app shows for Nivaz</label>
+        <label class="fld" for="lgTotp">3. Type the 6-digit code the app shows for ${esc(label)}</label>
         <input id="lgTotp" class="codefield" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="••••••">
         <div class="err" id="lgErr" role="alert"></div>
         <button class="btn primary" type="submit">Finish set-up</button>
         <div class="row"><button class="btn link" type="button" id="lgOut">Log out</button></div>
       </form>` : `<h1>Enter your authenticator code</h1>
-      <p>Open <b>Google Authenticator</b> on your phone and type the 6-digit code shown for <b>Nivaz</b>.</p>
+      <p>Open <b>Google Authenticator</b> on your phone and type the 6-digit code shown for <b>${esc(label)}</b>.</p>
       <form id="ltF" novalidate>
         <input id="lgTotp" class="codefield" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" aria-label="Authenticator code" placeholder="••••••">
         <div class="err" id="lgErr" role="alert"></div>
         <button class="btn primary" type="submit">Continue</button>
-        <div class="row"><button class="btn link" type="button" id="lgOut">Log out</button><span class="faint">Lost your phone? See the note below.</span></div>
+        <div class="row"><button class="btn link" type="button" id="lgOut">Log out</button></div>
       </form>
-      <p class="note" style="margin-top:14px">The code changes every 30 seconds. If you lost the phone with the app, the Super admin can reset it in Supabase:
-        <b>Authentication</b>, <b>Users</b>, your number, then remove the authenticator factor. Then log in again here to set up a new one.</p>`, first);
+      <p class="note" style="margin-top:14px">The code changes every 30 seconds. Lost the phone with the app? Ask the Super admin to reset your authenticator on
+        <b>Team and roles</b>; your next login shows a new QR code. (Super admin: the one line to run in Supabase is in the handbook, section 20.)</p>`, first);
     $("#lgOut").onclick = logout;
     $("#ltF").onsubmit = async e => {
       e.preventDefault();
-      const code = digits($("#lgTotp").value); if (code.length !== 6) return $("#lgErr").textContent = "Type the 6 digits from the app.";
+      const err = $("#lgErr"), code = digits($("#lgTotp").value);
+      if (code.length !== 6) return err.textContent = "Type the 6 digits from the app.";
       const btn = $("button[type=submit]", gate); btn.disabled = true;
-      const { data: ch, error: ce } = await sb.auth.mfa.challenge({ factorId });
-      if (ce) { btn.disabled = false; return $("#lgErr").textContent = authMsg(ce); }
-      const { error: ve } = await sb.auth.mfa.verify({ factorId, challengeId: ch.id, code });
-      if (ve) { btn.disabled = false; return $("#lgErr").textContent = /mfa_verification_failed|Invalid TOTP|invalid/i.test(ve.message + (ve.code || "")) ? "That code didn't work. Type the 6 digits the app shows right now (they change every 30 seconds), and check that your phone's time is set automatically." : authMsg(ve); }
-      if (first) toast("Second step set up. You'll be asked for an app code when you log in on a new computer.");
-      enterApp();
+      let r;
+      try { r = await rpc("dash_totp_verify", { p_code: code }); }
+      catch (ex) { btn.disabled = false; if (ex.missing) return showNotInstalled(21); if (ex.login) return showLogin(); return err.textContent = friendly(ex); }
+      if (r && r.ok) {
+        if (first) toast("Second step set up. You'll be asked for an app code when you log in on a new computer.");
+        return enterApp();
+      }
+      btn.disabled = false; $("#lgTotp").value = ""; $("#lgTotp").focus();
+      if (r && r.reason === "not_set_up") return startSecondStep("setup");
+      err.textContent = (TOTP_WORDS[r && r.reason] || TOTP_WORDS.wrong_code) + (r && r.reason !== "too_many_tries" && r.tries_left != null && r.tries_left < 5 ? ` ${plural(r.tries_left, "try", "tries")} left.` : "");
     };
   }
   async function logout() { try { await sb.auth.signOut(); } catch (_) {} location.hash = ""; showLogin(); }
@@ -1029,10 +1054,24 @@
         <form id="tmF" class="rowline" novalidate><div class="phonefield" style="width:260px"><span class="cc">+91</span><input id="tmPhone" type="tel" inputmode="numeric" placeholder="10-digit number" aria-label="Mobile number"></div>
         <button class="btn" type="submit">Find</button></form><div id="tmFound" style="margin-top:12px"></div></section>` : ""}
       <section class="panel sec"><h2 class="pad" style="padding-bottom:4px">The Nivaz team</h2><div class="people">
-        ${team.map(m => `<div class="p"><span>${personLink(m.id, m.name || "No name yet")}${m.is_me ? `<span class="muted"> (you)</span>` : ""}<br><span class="muted">${phone(m.phone)}</span></span>
-          <span class="rowline">${st(m.role === "admin" ? "ok" : "", ROLE[m.role])}${isAdmin() && !m.is_me ? `<button class="btn sm danger" data-rm="${m.id}" data-own="${m.owns_properties ? 1 : 0}" data-name="${esc(m.name || phone(m.phone))}">Remove from team</button>` : ""}</span></div>`).join("")}
-      </div></section>`;
+        ${team.map(m => `<div class="p"><span>${personLink(m.id, m.name || "No name yet")}${m.is_me ? `<span class="muted"> (you)</span>` : ""}<br><span class="muted">${phone(m.phone)}</span>
+            <br><span class="faint">${esc({ set_up: "Authenticator app set up", started: "Authenticator set-up not finished", not_set_up: "No authenticator app yet" }[m.authenticator] || "")}</span></span>
+          <span class="rowline">${st(m.role === "admin" ? "ok" : "", ROLE[m.role])}
+            ${isAdmin() && m.authenticator && m.authenticator !== "not_set_up" ? `<button class="btn sm" data-totp="${m.id}" data-me="${m.is_me ? 1 : 0}" data-name="${esc(m.name || phone(m.phone))}">Reset authenticator</button>` : ""}
+            ${isAdmin() && !m.is_me ? `<button class="btn sm danger" data-rm="${m.id}" data-own="${m.owns_properties ? 1 : 0}" data-name="${esc(m.name || phone(m.phone))}">Remove from team</button>` : ""}</span></div>`).join("")}
+      </div></section>
+      <p class="muted" style="margin-top:12px">Everyone on the team logs in here with an SMS code and a code from an authenticator app (part 21). If someone loses their phone, reset their authenticator: their next login shows a new QR code to scan.</p>`;
     if (!isAdmin()) return;
+    // Lost phone: clear a team member's authenticator (part 21). Their next login sets up a new one.
+    $$("[data-totp]").forEach(b => b.onclick = async () => {
+      const me = b.dataset.me === "1";
+      const done = await ask({ title: me ? "Reset your own authenticator?" : `Reset ${b.dataset.name}'s authenticator?`,
+        text: me ? "Do this if you're moving to a new phone. You'll set it up again straight away with a new QR code." : "Do this if they lost their phone or changed it. Their next login on the dashboard shows a new QR code to scan, and any open dashboard logins of theirs close.",
+        ok: "Reset authenticator", danger: true, run: () => rpc("dash_totp_reset", { p_user: b.dataset.totp }) });
+      if (!done) return;
+      if (me) { toast("Authenticator reset. Set it up again now."); return startSecondStep("setup"); }
+      toast(`${b.dataset.name}'s authenticator is reset.`); render();
+    });
     const setRole = async (id, role, name) => { await patch("users", id, { role }); toast(`${name} is now ${ROLE[role]}.`); render(); };
     $("#tmF").onsubmit = async e => {
       e.preventDefault(); const out = $("#tmFound");

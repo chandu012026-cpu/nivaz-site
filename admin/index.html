@@ -10,8 +10,8 @@
 </head>
 <body>
 <!-- Nivaz team console: the admin web dashboard for the Super admin and Nivaz Support.
-     Every list comes from the database functions in supabase/19_admin_dashboard.sql, which check the role and the
-     authenticator-app step themselves. Changes use the same actions as the phone app. -->
+     Every list comes from the database functions in supabase/19_admin_dashboard.sql and 21_team_authenticator.sql, which
+     check the role and the authenticator-app step themselves. Changes use the same actions as the phone app. -->
 <div id="gate" class="gate" hidden></div>
 <div id="app" class="shell" hidden>
   <aside class="side">
@@ -35,6 +35,7 @@
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 <dialog id="dlg" aria-labelledby="dlgTitle"></dialog>
 <script src="vendor/supabase.js"></script>
+<script src="vendor/qrcode.js"></script>
 <script src="config.js"></script>
 <script src="dashboard.js"></script>
 </body>

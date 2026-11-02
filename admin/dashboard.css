@@ -84,6 +84,8 @@ label.fld span{font-weight:400;color:var(--muted);font-size:12.5px}
 .codefield{font-size:22px !important;letter-spacing:.3em;text-align:center;min-height:48px !important;font-variant-numeric:tabular-nums}
 .qr{display:grid;grid-template-columns:auto 1fr;gap:16px;align-items:center;margin:6px 0 2px}
 .qr img{width:168px;height:168px;background:#fff;border-radius:8px;border:1px solid var(--line);padding:6px}
+.qrpic{width:176px;height:176px;background:#fff;border-radius:8px;border:1px solid var(--line);padding:6px;flex:none}
+.qrpic svg{width:100%;height:100%;display:block}
 .steps{margin:0;padding-left:20px;color:var(--ink);display:grid;gap:6px}
 .secret{font-variant-numeric:tabular-nums;letter-spacing:.08em;word-break:break-all;background:var(--sunk);border-radius:6px;padding:4px 8px;font-weight:600;display:inline-block}
 .note{background:var(--sunk);border-radius:var(--radius-sm);padding:10px 12px;color:var(--muted);font-size:13px}
