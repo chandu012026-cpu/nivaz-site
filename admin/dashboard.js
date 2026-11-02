@@ -870,7 +870,7 @@
     lede: "When a resident disagrees with what the owner kept back from the deposit. Look at both sides, then decide.",
     segs: [{ key: "status", def: "open", opts: [["open", "To decide"], ["decided", "Decided"], ["all", "All"]] }],
     fetch: (s, limit, offset) => rpc("dash_disputes", { p_status: s.status, p_limit: limit, p_offset: offset }),
-    empty: s => s.status === "open" ? "No disputes to decide. (Deposit protection, part 20, isn't switched on yet; disputes will appear here when it is.)" : "No disputes.",
+    empty: s => s.status === "open" ? "No disputes to decide. When a resident at a hostel with deposit protection disagrees about their deposit, it appears here. (Needs database part 20.)" : "No disputes.",
     cols: () => [
       { h: "Opened", cell: d => `${fmtDate(d.opened_at)}<span class="sub">${ago(d.opened_at)}</span>`, csv: d => d.opened_at },
       { h: "Hostel", cell: d => propLink(d.property_id, d.property), csv: d => d.property },
