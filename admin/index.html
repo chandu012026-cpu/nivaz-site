@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="color-scheme" content="light dark">
+<title>Nivaz team console</title>
+<link rel="stylesheet" href="dashboard.css">
+</head>
+<body>
+<!-- Nivaz team console: the admin web dashboard for the Super admin and Nivaz Support.
+     Every list comes from the database functions in supabase/19_admin_dashboard.sql, which check the role and the
+     authenticator-app step themselves. Changes use the same actions as the phone app. -->
+<div id="gate" class="gate" hidden></div>
+<div id="app" class="shell" hidden>
+  <aside class="side">
+    <a class="brand" href="#overview"><i aria-hidden="true">N</i><span>Nivaz<small>Team console</small></span></a>
+    <nav id="nav" aria-label="Sections"></nav>
+    <div class="side-foot" id="sideFoot"></div>
+  </aside>
+  <div class="main">
+    <header class="top">
+      <div class="search" role="search">
+        <svg class="search-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="q" type="search" placeholder="Search a name, phone number, booking number, ticket or hostel" autocomplete="off"
+               aria-label="Search everything" role="combobox" aria-expanded="false" aria-controls="qList" aria-autocomplete="list">
+        <div id="qList" class="qlist" role="listbox" aria-label="Search results" hidden></div>
+      </div>
+      <div class="who" id="who"></div>
+    </header>
+    <main id="view" tabindex="-1"></main>
+  </div>
+</div>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<dialog id="dlg" aria-labelledby="dlgTitle"></dialog>
+<script src="vendor/supabase.js"></script>
+<script src="config.js"></script>
+<script src="dashboard.js"></script>
+</body>
+</html>
