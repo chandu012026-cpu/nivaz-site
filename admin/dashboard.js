@@ -889,6 +889,13 @@
     try { d = await rpc("dash_dispute", { p_id: r.id }); }
     catch (e) { if (e.message === MESSAGES.not_found) { view.innerHTML = `<div class="crumb"><a href="#disputes">Deposit disputes</a></div><div class="panel empty">This dispute doesn't exist (or deposit protection isn't switched on yet).</div>`; return; } throw e; }
     if (!alive()) return;
+    // part 20 sends private photos as storage paths: sign each one for 10 minutes (the database checks the team can see them)
+    d.photos = (await Promise.all((d.photos || []).map(async ph => {
+      if (ph.url || !ph.path) return ph.url ? ph : null;
+      const x = await sb.storage.from(ph.bucket || "deposit").createSignedUrl(ph.path, 600);
+      return x.error ? null : Object.assign({}, ph, { url: x.data.signedUrl });
+    }))).filter(Boolean);
+    if (!alive()) return;
     view.innerHTML = `<div class="crumb"><a href="#disputes">Deposit disputes</a></div>
       <div class="ph"><div><h1>Deposit dispute: ${esc(d.property || "")}</h1><p class="lede">Opened ${fmtTime(d.opened_at)}${d.due_by ? `. Decide by ${fmtDate(d.due_by)}` : ""}.</p>
         <div class="rowline" style="margin-top:8px">${st(d.status === "open" ? "warn" : "ok", d.status === "open" ? "To decide" : String(d.status || ""))}</div></div></div>
